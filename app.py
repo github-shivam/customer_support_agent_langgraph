@@ -3,10 +3,10 @@ from typing import Dict, TypedDict
 from langgraph.graph import StateGraph, END
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
-from dotenv import load_dotenv
+from langchain_ollama.llms import OllamaLLM
+import streamlit as st
 
-load_dotenv()
-os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
+llm = OllamaLLM(model="gemma3", temperature=0)
 
 # define State Structure
 class State(TypedDict):
@@ -21,20 +21,21 @@ def categorize(state: State) -> State:
     """Categorize the customer query into Technical, Billing, or General."""
     prompt = ChatPromptTemplate.from_template(
         "Categorize the following customer query into one of these categories: "
-        "Technical, Billing, General. Query: {query}"
+        "Technical, Billing, General. Respond with only the category name. No explanation. Query: {query}"
     )
-    chain = prompt | ChatOpenAI(temperature=0)
-    category = chain.invoke({"query": state["query"]}).content
+    chain = prompt | llm
+    category = chain.invoke({"query": state["query"]})
     return {"category": category}
 
 def analyze_sentiments(state: State) -> State:
     """Analyze the sentiment of the customer query Positive, Neutral, or Negative."""
     prompt = ChatPromptTemplate.from_template(
         "Analyze the sentiment of the following cutomer query. "
-        "Respont with either 'Positive', 'Neutral' or 'Negative'. Query: {query}"
+        "Respont with either 'Positive', 'Neutral' or 'Negative'."
+        "No explanation, just the sentiment.\n\nQuery: {query}"
     )
-    chain = prompt | ChatOpenAI(temperature=0)
-    sentiment = chain.invoke({"query": state["query"]}).content
+    chain = prompt | llm
+    sentiment = chain.invoke({"query": state["query"]})
     return {"sentiment": sentiment}
 
 def handle_technical(state: State) -> State:
@@ -42,8 +43,8 @@ def handle_technical(state: State) -> State:
     prompt = ChatPromptTemplate.from_template(
         "Provide a technical support response to the following query: {query}"
     )
-    chain = prompt | ChatOpenAI(temperature=0)
-    response = chain.invoke({"query": state["query"]}).content
+    chain = prompt | llm
+    response = chain.invoke({"query": state["query"]})
     return {"response": response}
 
 def handle_billing(state: State) -> State:
@@ -51,8 +52,8 @@ def handle_billing(state: State) -> State:
     prompt = ChatPromptTemplate.from_template(
         "Provide a billing support response to the following query: {query}"
     )
-    chain = prompt | ChatOpenAI(temperature=0)
-    response = chain.invoke({"query": state["query"]}).content
+    chain = prompt | llm
+    response = chain.invoke({"query": state["query"]})
     return {"response": response}
 
 def handle_general(state: State) -> State:
@@ -60,8 +61,8 @@ def handle_general(state: State) -> State:
     prompt = ChatPromptTemplate.from_template(
         "Provide a general support response to the following query: {query}"
     )
-    chain = prompt | ChatOpenAI(temperature=0)
-    response = chain.invoke({"query": state["query"]}).content
+    chain = prompt | llm
+    response = chain.invoke({"query": state["query"]})
     return {"response": response}
 
 def escalate(state: State) -> State:
@@ -70,14 +71,15 @@ def escalate(state: State) -> State:
 
 def route_query(state: State) -> str:
     """Route the query based on its sentiment and category."""
-    if state["sentiment"] == "Negative":
+    if "sentiment" in state and state["sentiment"].strip().lower() == "negative":
         return "escalate"
-    elif state["category"] == "Technical":
-        return "handle_technical"
-    elif state["category"] == "Billing":
-        return "handle_billing"
-    else:
-        return "handle_general"
+    elif "category" in state:
+        category = state["category"].strip().lower()
+        if category == "technical":
+            return "handle_technical"
+        elif category == "billing":
+            return "handle_billing"
+    return "handle_general"
     
 
 
@@ -119,29 +121,23 @@ workflow.set_entry_point("categorize")
 # compile the graph
 app = workflow.compile()
 
-# This function processes a customer query through our LangGraph workflow.
 
-def run_customer_support(query: str) -> Dict[str, str]:
-    """Process a customer query through the LangGraph workflow.
-    
-    Args:
-        query (str): The customer's query
-        
-    Returns:
-        Dict[str, str]: A dictionary containing the query's category, sentiment, and response
-    """
-    results = app.invoke({"query": query})
-    return {
-        "category": results["category"],
-        "sentiment": results["sentiment"],
-        "response": results["response"]
-    }
+st.set_page_config(page_title="Customer Support Bot", page_icon="🤖")
 
-query = "I need help talking to chatGPT"
-result = run_customer_support(query)
-print(f"Query: {query}")
-print(f"Category: {result['category']}")
-print(f"Sentiment: {result['sentiment']}")
-print(f"Response: {result['response']}")
-print("\n")
+st.title("🤖 AI Customer Support Assistant")
+query = st.text_area("Enter your query here:")
+
+if st.button("Submit"):
+    if query.strip() == "":
+        st.warning("Please enter a query.")
+    else:
+        with st.spinner("Processing..."):
+            result = app.invoke({"query": query})
+        st.success("Query Processed ✅")
+
+        st.markdown("### Results")
+        st.markdown(f"**Category:** {result['category']}")
+        st.markdown(f"**Sentiment:** {result['sentiment']}")
+        st.markdown(f"**Response:** {result['response']}")
+
 
